@@ -375,7 +375,7 @@ static CK_RV gostr3410_verify_data(const unsigned char *pubkey, int pubkey_len,
  */
 CK_RV sc_pkcs11_verify_data(const unsigned char *pubkey, int pubkey_len,
 			const unsigned char *pubkey_params, int pubkey_params_len,
-			CK_MECHANISM_TYPE mech, sc_pkcs11_operation_t *md,
+			CK_MECHANISM_PTR mech, sc_pkcs11_operation_t *md,
 			unsigned char *data, int data_len,
 			unsigned char *signat, int signat_len)
 {
@@ -383,7 +383,7 @@ CK_RV sc_pkcs11_verify_data(const unsigned char *pubkey, int pubkey_len,
 	CK_RV rv = CKR_GENERAL_ERROR;
 	EVP_PKEY *pkey;
 
-	if (mech == CKM_GOSTR3410)
+	if (mech->mechanism == CKM_GOSTR3410)
 	{
 #if OPENSSL_VERSION_NUMBER >= 0x10000000L && !defined(OPENSSL_NO_EC)
 		return gostr3410_verify_data(pubkey, pubkey_len,
@@ -418,13 +418,19 @@ CK_RV sc_pkcs11_verify_data(const unsigned char *pubkey, int pubkey_len,
 		unsigned char *rsa_out = NULL, pad;
 		int rsa_outlen = 0;
 
-		switch(mech) {
+		switch(mech->mechanism) {
 		case CKM_RSA_PKCS:
 		 	pad = RSA_PKCS1_PADDING;
 		 	break;
 		 case CKM_RSA_X_509:
 		 	pad = RSA_NO_PADDING;
 		 	break;
+		 case CKM_RSA_X9_31:
+			 pad = RSA_X931_PADDING;
+			 break;
+		 case CKM_RSA_PKCS_PSS:
+			 pad = 0;
+			 break;
 		 default:
 			EVP_PKEY_free(pkey);
 		 	return CKR_ARGUMENTS_BAD;
@@ -434,6 +440,23 @@ CK_RV sc_pkcs11_verify_data(const unsigned char *pubkey, int pubkey_len,
 		EVP_PKEY_free(pkey);
 		if (rsa == NULL)
 			return CKR_DEVICE_MEMORY;
+
+		if (mech->mechanism == CKM_RSA_PKCS_PSS) {
+			switch (((CK_RSA_PKCS_PSS_PARAMS*)mech->pParameter)->mgf) {
+			case CKG_MGF1_SHA1: md = EVP_sha1(); break;
+			case CKG_MGF1_SHA256: md = EVP_sha256(); break;
+			case CKG_MGF1_SHA384: md = EVP_sha384(); break;
+			case CKG_MGF1_SHA512: md = EVP_sha512(); break;
+			default:
+				return SC_ERROR_NOT_SUPPORTED;
+			}
+			rv = CKR_SIGNATURE_INVALID;
+			if (signat_len == EVP_MD_size(md) && data_len == EVP_MD_size(md) &&
+			    RSA_verify_PKCS1_PSS_mgf1(rsa, signat, md, md, data, EVP_MD_size(md)) == 1)
+				rv = CKR_OK;
+			RSA_free(rsa);
+			return rv;
+		}
 
 		rsa_out = calloc(1, RSA_size(rsa));
 		if (rsa_out == NULL) {

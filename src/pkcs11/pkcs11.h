@@ -153,6 +153,16 @@ extern "C" {
 
 #define ck_mechanism_type_t CK_MECHANISM_TYPE
 
+#define ck_rsa_pkcs_oaep_params _CK_RSA_PKCS_OAEP_PARAMS
+#define ck_rsa_pkcs_pss_params _CK_RSA_PKCS_PSS_PARAMS
+#define ck_rsa_pkcs_mgf_type_t CK_RSA_PKCS_MGF_TYPE
+#define ck_rsa_pkcs_oaep_source_type_t CK_RSA_PKCS_OAEP_SOURCE_TYPE
+#define ck_ulong_t CK_ULONG
+#define hash_alg hashAlg
+#define source_data pSourceData
+#define source_data_len ulSourceDataLen
+#define s_len sLen
+
 #define ck_mechanism _CK_MECHANISM
 #define parameter pParameter
 #define parameter_len ulParameterLen
@@ -751,6 +761,30 @@ typedef struct CK_ECDH1_DERIVE_PARAMS {
 	unsigned char *  pPublicData;
 } CK_ECDH1_DERIVE_PARAMS;
 
+typedef unsigned long ck_rsa_pkcs_mgf_type_t;
+typedef unsigned long ck_rsa_pkcs_oaep_source_type_t;
+typedef unsigned long ck_ulong_t;
+
+struct ck_rsa_pkcs_oaep_params
+{
+  ck_mechanism_type_t hash_alg;
+  ck_rsa_pkcs_mgf_type_t mgf;
+  ck_rsa_pkcs_oaep_source_type_t source;
+  void *source_data;
+  ck_ulong_t source_data_len;
+};
+
+struct ck_rsa_pkcs_pss_params {
+  ck_mechanism_type_t hash_alg;
+  ck_rsa_pkcs_mgf_type_t mgf;
+  ck_ulong_t s_len;
+};
+
+#define CKG_MGF1_SHA1	0x00000001
+#define CKG_MGF1_SHA256	0x00000002
+#define CKG_MGF1_SHA384	0x00000003
+#define CKG_MGF1_SHA512	0x00000004
+
 
 typedef unsigned long ck_rv_t;
 
@@ -1238,7 +1272,6 @@ typedef unsigned char CK_BYTE;
 typedef unsigned char CK_CHAR;
 typedef unsigned char CK_UTF8CHAR;
 typedef unsigned char CK_BBOOL;
-typedef unsigned long int CK_ULONG;
 typedef long int CK_LONG;
 typedef CK_BYTE *CK_BYTE_PTR;
 typedef CK_CHAR *CK_CHAR_PTR;
@@ -1287,6 +1320,9 @@ typedef struct ck_date CK_DATE;
 typedef struct ck_date *CK_DATE_PTR;
 
 typedef ck_mechanism_type_t *CK_MECHANISM_TYPE_PTR;
+
+typedef struct ck_rsa_pkcs_oaep_params CK_RSA_PKCS_OAEP_PARAMS;
+typedef struct ck_rsa_pkcs_pss_params CK_RSA_PKCS_PSS_PARAMS;
 
 typedef struct ck_mechanism CK_MECHANISM;
 typedef struct ck_mechanism *CK_MECHANISM_PTR;
@@ -1357,6 +1393,15 @@ typedef struct ck_c_initialize_args *CK_C_INITIALIZE_ARGS_PTR;
 #undef ck_date
 
 #undef ck_mechanism_type_t
+
+#undef ck_rsa_pkcs_oaep_params
+#undef hash_alg
+#undef source_data
+#undef source_data_len
+#undef ck_rsa_pkcs_mgf_type_t
+#undef ck_rsa_pkcs_oaep_source_type_t
+#undef ck_ulong_t
+#undef ck_rsa_pkcs_pss_params
 
 #undef ck_mechanism
 #undef parameter

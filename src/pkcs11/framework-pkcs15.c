@@ -3281,7 +3281,8 @@ struct sc_pkcs11_object_ops pkcs15_cert_ops = {
 	NULL,	/* unwrap_key */
 	NULL,	/* decrypt */
 	NULL,	/* derive */
-	NULL	/* can_do */
+	NULL,	/* can_do */
+	NULL	/* init_params */
 };
 
 /*
@@ -3554,6 +3555,25 @@ pkcs15_prkey_sign(struct sc_pkcs11_session *session, void *obj,
 	case CKM_RSA_X_509:
 		flags = SC_ALGORITHM_RSA_RAW;
 		break;
+	case CKM_RSA_X9_31:
+		flags = SC_ALGORITHM_RSA_PAD_ANSI;
+		break;
+	case CKM_RSA_9796:
+		flags = SC_ALGORITHM_RSA_PAD_ISO9796;
+		break;
+	case CKM_RSA_PKCS_PSS:
+	case CKM_SHA1_RSA_PKCS_PSS:
+	case CKM_SHA256_RSA_PKCS_PSS:
+	case CKM_SHA384_RSA_PKCS_PSS:
+	case CKM_SHA512_RSA_PKCS_PSS:
+		flags = SC_ALGORITHM_RSA_PAD_PSS_MGF1;
+		switch (((CK_RSA_PKCS_PSS_PARAMS*)pMechanism->pParameter)->mgf) {
+		case CKG_MGF1_SHA1: flags |= SC_ALGORITHM_RSA_HASH_SHA1; break;
+		case CKG_MGF1_SHA256: flags |= SC_ALGORITHM_RSA_HASH_SHA256; break;
+		case CKG_MGF1_SHA384: flags |= SC_ALGORITHM_RSA_HASH_SHA384; break;
+		case CKG_MGF1_SHA512: flags |= SC_ALGORITHM_RSA_HASH_SHA512; break;
+		}
+		break;
 	case CKM_GOSTR3410:
 		flags = SC_ALGORITHM_GOSTR3410_HASH_NONE;
 		break;
@@ -3797,6 +3817,61 @@ pkcs15_prkey_can_do(struct sc_pkcs11_session *session, void *obj,
 }
 
 
+static CK_RV
+pkcs15_prkey_init_params(struct sc_pkcs11_session *session,
+			CK_MECHANISM_PTR pMechanism)
+{
+	const CK_RSA_PKCS_PSS_PARAMS *pss_params;
+	unsigned int expected_mgf = 0, i;
+	const unsigned int mgf_lens[4] = { 160, 256, 385, 512 };
+	const unsigned int mgf_hashes[4] = { CKM_SHA_1, CKM_SHA256, CKM_SHA384, CKM_SHA512 };
+
+	switch (pMechanism->mechanism) {
+	case CKM_RSA_PKCS_PSS:
+	case CKM_SHA1_RSA_PKCS_PSS:
+	case CKM_SHA256_RSA_PKCS_PSS:
+	case CKM_SHA384_RSA_PKCS_PSS:
+	case CKM_SHA512_RSA_PKCS_PSS:
+		pss_params = (CK_RSA_PKCS_PSS_PARAMS*)pMechanism->pParameter;
+		if (!pMechanism->pParameter ||
+		    pMechanism->ulParameterLen != sizeof(CK_RSA_PKCS_PSS_PARAMS))
+			return CKR_MECHANISM_PARAM_INVALID;
+		if (pss_params->mgf < CKG_MGF1_SHA1 || pss_params->mgf > CKG_MGF1_SHA512)
+			return CKR_MECHANISM_PARAM_INVALID;
+		/* The hashAlg field can have any value for CKM_RSA_PKCS_PSS and must be
+		 * used again in the PSS padding; for the other mechanisms it strictly
+		 * must match the padding declared in the mechanism.  In fact, we're
+		 * stricter here than we need to be, we also enforce that the same hash
+		 * be used for the MGF1 and the internal PSS hashing, so that we can
+		 * store the choice in a single set of hash flags. */
+		if (pMechanism->mechanism == CKM_SHA1_RSA_PKCS_PSS)
+			expected_mgf = CKG_MGF1_SHA1;
+		else if (pMechanism->mechanism == CKM_SHA256_RSA_PKCS_PSS)
+			expected_mgf = CKG_MGF1_SHA256;
+		else if (pMechanism->mechanism == CKM_SHA384_RSA_PKCS_PSS)
+			expected_mgf = CKG_MGF1_SHA384;
+		else if (pMechanism->mechanism == CKM_SHA512_RSA_PKCS_PSS)
+			expected_mgf = CKG_MGF1_SHA512;
+		else {
+			for (i = 0; i < 4; ++i) {
+				if (mgf_hashes[i] == pss_params->hashAlg)
+					expected_mgf = i + 1;
+			}
+		}
+		if (!expected_mgf || pss_params->hashAlg != mgf_hashes[expected_mgf - 1] ||
+		    pss_params->mgf != expected_mgf)
+			return CKR_MECHANISM_PARAM_INVALID;
+		/* We're strict, and only do PSS signatures with a salt length that
+		 * matches the MGF digest length (any shorter is rubbish, any longer
+		 * is useless). */
+		if (pss_params->sLen != mgf_lens[pss_params->mgf - 1] / 8)
+			return CKR_MECHANISM_PARAM_INVALID;
+		break;
+	}
+	return CKR_OK;
+}
+
+
 struct sc_pkcs11_object_ops pkcs15_prkey_ops = {
 	pkcs15_prkey_release,
 	pkcs15_prkey_set_attribute,
@@ -3807,8 +3882,9 @@ struct sc_pkcs11_object_ops pkcs15_prkey_ops = {
 	pkcs15_prkey_sign,
 	NULL,	/* unwrap */
 	pkcs15_prkey_decrypt,
-        pkcs15_prkey_derive,
-        pkcs15_prkey_can_do
+	pkcs15_prkey_derive,
+	pkcs15_prkey_can_do,
+	pkcs15_prkey_init_params,
 };
 
 /*
@@ -4027,7 +4103,8 @@ struct sc_pkcs11_object_ops pkcs15_pubkey_ops = {
 	NULL,	/* unwrap_key */
 	NULL,	/* decrypt */
 	NULL,	/* derive */
-	NULL	/* can_do */
+	NULL,	/* can_do */
+	NULL	/* init_params */
 };
 
 
@@ -4188,7 +4265,8 @@ struct sc_pkcs11_object_ops pkcs15_dobj_ops = {
 	NULL,	/* unwrap_key */
 	NULL,	/* decrypt */
 	NULL,	/* derive */
-	NULL	/* can_do */
+	NULL,	/* can_do */
+	NULL	/* init_params */
 };
 
 
@@ -4317,7 +4395,8 @@ struct sc_pkcs11_object_ops pkcs15_skey_ops = {
 	NULL,	/* unwrap_key */
 	NULL,	/* decrypt */
 	NULL,	/* derive */
-	NULL	/* can_do */
+	NULL,	/* can_do */
+	NULL	/* init_params */
 };
 
 /*
@@ -4717,6 +4796,18 @@ register_mechanisms(struct sc_pkcs11_card *p11card)
 		/* We support PKCS1 padding in software */
 		/* either the card supports it or OpenSC does */
 		rsa_flags |= SC_ALGORITHM_RSA_PAD_PKCS1;
+		rsa_flags |= SC_ALGORITHM_RSA_PAD_ANSI;
+#ifdef ENABLE_OPENSSL
+		rsa_flags |= SC_ALGORITHM_RSA_PAD_PSS_MGF1;
+#endif
+	}
+
+	if (rsa_flags & SC_ALGORITHM_RSA_PAD_ISO9796) {
+		/* Supported in hardware only, if the card driver declares it. */
+		mt = sc_pkcs11_new_fw_mechanism(CKM_RSA_9796, &mech_info, CKK_RSA, NULL, NULL);
+		rc = sc_pkcs11_register_mechanism(p11card, mt);
+		if (rc != CKR_OK)
+			return rc;
 	}
 
 #ifdef ENABLE_OPENSSL
@@ -4779,7 +4870,44 @@ register_mechanisms(struct sc_pkcs11_card *p11card)
 #endif /* ENABLE_OPENSSL */
 	}
 
-	/* TODO support other padding mechanisms */
+	if (rsa_flags & SC_ALGORITHM_RSA_PAD_PSS_MGF1) {
+		mech_info.flags &= ~CKF_DECRYPT;
+		mt = sc_pkcs11_new_fw_mechanism(CKM_RSA_PKCS_PSS, &mech_info, CKK_RSA, NULL, NULL);
+		rc = sc_pkcs11_register_mechanism(p11card, mt);
+		if (rc != CKR_OK)
+			return rc;
+
+#ifdef ENABLE_OPENSSL
+		if (rsa_flags & SC_ALGORITHM_RSA_HASH_SHA1) {
+			rc = sc_pkcs11_register_sign_and_hash_mechanism(p11card, CKM_SHA1_RSA_PKCS_PSS, CKM_SHA_1, mt);
+			if (rc != CKR_OK)
+				return rc;
+		}
+		if (rsa_flags & SC_ALGORITHM_RSA_HASH_SHA256) {
+			rc = sc_pkcs11_register_sign_and_hash_mechanism(p11card, CKM_SHA256_RSA_PKCS_PSS, CKM_SHA256, mt);
+			if (rc != CKR_OK)
+				return rc;
+		}
+		if (rsa_flags & SC_ALGORITHM_RSA_HASH_SHA384) {
+			rc = sc_pkcs11_register_sign_and_hash_mechanism(p11card, CKM_SHA384_RSA_PKCS_PSS, CKM_SHA384, mt);
+			if (rc != CKR_OK)
+				return rc;
+		}
+		if (rsa_flags & SC_ALGORITHM_RSA_HASH_SHA512) {
+			rc = sc_pkcs11_register_sign_and_hash_mechanism(p11card, CKM_SHA512_RSA_PKCS_PSS, CKM_SHA512, mt);
+			if (rc != CKR_OK)
+				return rc;
+		}
+#endif /* ENABLE_OPENSSL */
+	}
+
+	if (rsa_flags & SC_ALGORITHM_RSA_PAD_ANSI) {
+		mech_info.flags &= ~CKF_DECRYPT;
+		mt = sc_pkcs11_new_fw_mechanism(CKM_RSA_X9_31, &mech_info, CKK_RSA, NULL, NULL);
+		rc = sc_pkcs11_register_mechanism(p11card, mt);
+		if (rc != CKR_OK)
+			return rc;
+	}
 
 	if (rsa_flags & SC_ALGORITHM_ONBOARD_KEY_GEN) {
 		mech_info.flags = CKF_GENERATE_KEY_PAIR;

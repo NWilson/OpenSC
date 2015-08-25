@@ -418,10 +418,15 @@ int sc_pkcs15_compute_signature(struct sc_pkcs15_card *p15card,
 	}
 
 
-	/* If the card doesn't support the requested algorithm, see if we
-	 * can strip the input so a more restrictive algo can be used */
+	/* If the card doesn't support the requested algorithm, we normally add the
+	 * padding here in software and ask the card to do a raw signature.  There's
+	 * one exception to that, where we might be able to get the signature to
+	 * succeed by stripping padding if the card only offers higher-level
+	 * signature operations.  The only thing we can strip is the DigestInfo
+	 * block from PKCS1 padding. */
 	if ((flags == (SC_ALGORITHM_RSA_PAD_PKCS1 | SC_ALGORITHM_RSA_HASH_NONE)) &&
-	    !(alg_info->flags & (SC_ALGORITHM_RSA_RAW | SC_ALGORITHM_RSA_HASH_NONE))) {
+	    !(alg_info->flags & SC_ALGORITHM_RSA_RAW) &&
+		!(alg_info->flags & (SC_ALGORITHM_RSA_PAD_PKCS1 | SC_ALGORITHM_RSA_HASH_NONE))) {
 		unsigned int algo;
 		size_t tmplen = sizeof(buf);
 
@@ -455,7 +460,7 @@ int sc_pkcs15_compute_signature(struct sc_pkcs15_card *p15card,
 		inlen = tmplen;
 	}
 	else if ( senv.algorithm == SC_ALGORITHM_RSA &&
-			(flags & SC_ALGORITHM_RSA_PADS) == SC_ALGORITHM_RSA_PAD_NONE) {
+	          (flags & SC_ALGORITHM_RSA_PADS) == SC_ALGORITHM_RSA_PAD_NONE) {
 		/* Add zero-padding if input is shorter than the modulus */
 		if (inlen < modlen) {
 			if (modlen > sizeof(buf))
